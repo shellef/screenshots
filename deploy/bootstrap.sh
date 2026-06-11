@@ -9,7 +9,7 @@ PORT=8002
 
 echo "==> Installing system packages"
 apt-get update -q
-apt-get install -y -q git nodejs
+apt-get install -y -q git nodejs npm
 
 echo "==> Cloning repo"
 if [ ! -d "$APP_DIR/.git" ]; then
