@@ -28,6 +28,7 @@
   <button id="submitBtn">Capture</button>
 
   <div id="jobMeta"></div>
+  <a id="downloadZip" href="#" download hidden><button type="button">Download all as ZIP</button></a>
   <table id="resultsTable" hidden>
     <thead>
       <tr>
@@ -50,6 +51,7 @@ const urlsEl = document.getElementById('urls');
 const jobMeta = document.getElementById('jobMeta');
 const table = document.getElementById('resultsTable');
 const tbody = table.querySelector('tbody');
+const downloadZip = document.getElementById('downloadZip');
 
 let pollTimer = null;
 
@@ -68,6 +70,7 @@ submitBtn.addEventListener('click', async () => {
   jobMeta.textContent = 'Submitting...';
   table.hidden = true;
   tbody.innerHTML = '';
+  downloadZip.hidden = true;
 
   try {
     const res = await fetch('/capture', {
@@ -101,6 +104,13 @@ async function pollJob(jobId) {
   }
 
   jobMeta.innerHTML = `Job <code>${job.id}</code> &mdash; status: <strong>${job.status}</strong> (${job.completed}/${job.total})`;
+
+  if (job.results.length > 0) {
+    downloadZip.href = `/jobs/${job.id}/zip`;
+    downloadZip.hidden = false;
+  } else {
+    downloadZip.hidden = true;
+  }
 
   table.hidden = job.results.length === 0;
   tbody.innerHTML = job.results.map((r, i) => {

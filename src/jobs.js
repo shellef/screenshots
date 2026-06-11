@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const { chromium } = require('playwright');
 const { captureUrl } = require('./capture');
+const { cleanupCaptures } = require('./cleanup');
 const logger = require('./logger');
 
 const CAPTURES_DIR = path.join(__dirname, '..', 'captures');
@@ -35,6 +36,13 @@ function createJob(urls) {
 
 async function processJob(job, urls) {
   job.status = 'running';
+
+  try {
+    await cleanupCaptures(CAPTURES_DIR);
+  } catch (err) {
+    logger.error(`Cleanup failed: ${err.message}`);
+  }
+
   const jobDir = path.join(CAPTURES_DIR, job.id);
   await fs.mkdir(jobDir, { recursive: true });
 

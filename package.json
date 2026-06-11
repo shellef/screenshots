@@ -9,6 +9,7 @@
     "postinstall": "playwright install chromium && bash scripts/install-fonts.sh"
   },
   "dependencies": {
+    "archiver": "^7.0.1",
     "express": "^4.19.2",
     "playwright": "^1.48.0"
   }

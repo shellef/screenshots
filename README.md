@@ -55,6 +55,12 @@ curl http://localhost:3000/jobs/<uuid>
 Each entry in `results` contains the requested URL, final URL after redirects, page
 title, HTTP status, capture timestamp (UTC), and status (`success` or `error`).
 
+Download all captures for a job as a ZIP (also available as a button in the web UI):
+
+```bash
+curl -o captures.zip http://localhost:3000/jobs/<uuid>/zip
+```
+
 ## Output
 
 Each job writes to `captures/<jobId>/<index>-<hostname>/`:
@@ -65,6 +71,16 @@ Each job writes to `captures/<jobId>/<index>-<hostname>/`:
 
 `captures/` is local-only for this MVP. To preserve captures in Google Drive, sync or
 move this directory there (e.g. via Google Drive Desktop, or `rclone copy`).
+
+### Cleanup
+
+At the start of every capture run, `captures/` is automatically pruned:
+
+- any job folder older than **30 days** is deleted
+- if the total size of `captures/` is still over **1GB**, the oldest remaining
+  job folders are deleted (oldest first) until it's back under the limit
+
+See `src/cleanup.js` to adjust these limits.
 
 ## Notes
 

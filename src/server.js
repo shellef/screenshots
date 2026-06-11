@@ -4,7 +4,9 @@ delete process.env.DISPLAY;
 delete process.env.WAYLAND_DISPLAY;
 
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
+const archiver = require('archiver');
 const { createJob, getJob, CAPTURES_DIR } = require('./jobs');
 const logger = require('./logger');
 
@@ -47,6 +49,30 @@ app.get('/jobs/:id', (req, res) => {
     return res.status(404).json({ error: 'Job not found' });
   }
   res.json(job);
+});
+
+app.get('/jobs/:id/zip', (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  const jobDir = path.join(CAPTURES_DIR, job.id);
+  if (!fs.existsSync(jobDir)) {
+    return res.status(404).json({ error: 'No captures found for this job' });
+  }
+
+  res.attachment(`captures-${job.id}.zip`);
+
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', (err) => {
+    logger.error(`Zip error for job ${job.id}: ${err.message}`);
+    res.status(500).end();
+  });
+
+  archive.pipe(res);
+  archive.directory(jobDir, false);
+  archive.finalize();
 });
 
 const PORT = process.env.PORT || 3000;
