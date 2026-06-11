@@ -1,0 +1,3 @@
+screenshot.updatenowapp.com {
+	reverse_proxy localhost:8002
+}
