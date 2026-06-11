@@ -3,19 +3,36 @@
 delete process.env.DISPLAY;
 delete process.env.WAYLAND_DISPLAY;
 
+require('dotenv').config();
+
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
+const session = require('express-session');
 const archiver = require('archiver');
 const { createJob, getJob, CAPTURES_DIR } = require('./jobs');
+const { router: authRouter, requireAuth } = require('./auth');
 const logger = require('./logger');
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'public')));
-app.use('/captures', express.static(CAPTURES_DIR));
+app.use(session({
+  secret: process.env.SESSION_SECRET_KEY || 'dev-secret-change-me',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.EXTERNAL_URL ? process.env.EXTERNAL_URL.startsWith('https://') : false,
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+  },
+}));
 
-app.post('/capture', (req, res) => {
+app.use(authRouter);
+
+app.use(requireAuth, express.static(path.join(__dirname, '..', 'public')));
+app.use('/captures', requireAuth, express.static(CAPTURES_DIR));
+
+app.post('/capture', requireAuth, (req, res) => {
   const { urls } = req.body || {};
 
   if (!Array.isArray(urls) || urls.length === 0) {
@@ -43,7 +60,7 @@ app.post('/capture', (req, res) => {
   res.status(202).json({ jobId: job.id, status: job.status, total: job.total });
 });
 
-app.get('/jobs/:id', (req, res) => {
+app.get('/jobs/:id', requireAuth, (req, res) => {
   const job = getJob(req.params.id);
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
@@ -51,7 +68,7 @@ app.get('/jobs/:id', (req, res) => {
   res.json(job);
 });
 
-app.get('/jobs/:id/zip', (req, res) => {
+app.get('/jobs/:id/zip', requireAuth, (req, res) => {
   const job = getJob(req.params.id);
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });

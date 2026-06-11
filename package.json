@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "archiver": "^7.0.1",
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
+    "express-session": "^1.19.0",
     "playwright": "^1.48.0"
   }
 }

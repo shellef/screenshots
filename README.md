@@ -22,6 +22,26 @@ process that skips `npm install`'s postinstall step, run this script explicitly
 on the target host/image, or install the equivalent `fonts-noto-*` packages via
 the OS package manager.
 
+## Authentication
+
+The app can require Google sign-in. Copy `.env.example` to `.env` and fill in:
+
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — from a Google OAuth client
+  (Web application type) in [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+  Add `<EXTERNAL_URL>/login/google/callback` to the client's "Authorized redirect URIs"
+  (e.g. `https://screenshot.updatenowapp.com/login/google/callback`).
+- `ALLOWED_EMAILS` — comma-separated allowlist of Google account emails. Leave empty
+  to allow any verified Google account.
+- `EXTERNAL_URL` — the public URL of this deployment (used to build the redirect URI
+  and to decide whether session cookies should be marked `secure`).
+- `REQUIRE_AUTH` — set to `false` to disable login entirely (open access).
+- `SESSION_SECRET_KEY` — random secret for signing session cookies, e.g.
+  `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+
+If `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are not set, the login page shows
+"Google auth not configured" — set `REQUIRE_AUTH=false` in that case to keep the
+site usable.
+
 ## Run
 
 ```bash

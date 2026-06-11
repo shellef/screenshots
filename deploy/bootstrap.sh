@@ -43,6 +43,7 @@ After=network.target
 User=ubuntu
 WorkingDirectory=$APP_DIR
 Environment=PORT=$PORT
+EnvironmentFile=-$APP_DIR/.env
 ExecStart=/usr/bin/node src/server.js
 Restart=always
 RestartSec=5

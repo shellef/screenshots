@@ -21,6 +21,7 @@
 </style>
 </head>
 <body>
+  <div id="userBar" style="float:right; font-size: 0.85rem; color: #555;"></div>
   <h1>Capture URLs</h1>
   <p>Enter one URL per line, then submit. Capturing happens in the background.</p>
   <textarea id="urls" rows="6" placeholder="https://example.com&#10;https://example.org"></textarea>
@@ -46,6 +47,14 @@
   </table>
 
 <script>
+fetch('/auth/check').then(async (res) => {
+  if (res.ok) {
+    const data = await res.json();
+    document.getElementById('userBar').innerHTML =
+      `${escapeHtml(data.user)} &middot; <a href="/logout">Log out</a>`;
+  }
+}).catch(() => {});
+
 const submitBtn = document.getElementById('submitBtn');
 const urlsEl = document.getElementById('urls');
 const jobMeta = document.getElementById('jobMeta');
