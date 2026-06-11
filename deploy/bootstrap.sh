@@ -17,11 +17,15 @@ if [ ! -d "$APP_DIR/.git" ]; then
     chown -R ubuntu:ubuntu "$APP_DIR"
 fi
 
+# Playwright doesn't yet recognize this Ubuntu release; the override tells it
+# to use the closest known build (binaries are compatible).
+PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64
+
 echo "==> Installing npm dependencies (also installs Chromium + Hebrew/Arabic/emoji fonts)"
-su - ubuntu -c "cd $APP_DIR && npm install"
+su - ubuntu -c "cd $APP_DIR && PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=$PLAYWRIGHT_HOST_PLATFORM_OVERRIDE npm install"
 
 echo "==> Installing Chromium system dependencies"
-cd "$APP_DIR" && npx playwright install-deps chromium
+cd "$APP_DIR" && PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=$PLAYWRIGHT_HOST_PLATFORM_OVERRIDE npx playwright install-deps chromium
 
 echo "==> Updating Caddyfile"
 if ! grep -q "$DOMAIN" /etc/caddy/Caddyfile 2>/dev/null; then
