@@ -8,9 +8,10 @@ HOST=${1:-ubuntu@stream-capture.updatenowapp.com}
 
 echo "==> Deploying on server"
 ssh -n "$HOST" '
+    set -e
     cd ~/screenshots
     git pull
-    npm install
+    PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 npm install
     sudo systemctl restart screenshots
 '
 
