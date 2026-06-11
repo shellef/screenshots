@@ -2,3 +2,5 @@ node_modules/
 captures/
 npm-debug.log*
 .env
+client_secret_*.json
+client_secret_*.json:Zone.Identifier
