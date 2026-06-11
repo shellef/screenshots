@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capture URLs</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  textarea { width: 100%; box-sizing: border-box; font-family: monospace; font-size: 0.9rem; padding: 0.5rem; }
+  button { padding: 0.5rem 1.25rem; font-size: 1rem; cursor: pointer; margin-top: 0.5rem; }
+  button:disabled { cursor: not-allowed; opacity: 0.6; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; font-size: 0.9rem; vertical-align: top; }
+  th { background: #f5f5f5; }
+  .status-success { color: #1a7f37; font-weight: 600; }
+  .status-error { color: #c0392b; font-weight: 600; }
+  .status-pending, .status-running { color: #b8860b; font-weight: 600; }
+  #jobMeta { margin-top: 1rem; font-size: 0.9rem; color: #555; }
+  a { color: #0366d6; }
+  .error-msg { color: #c0392b; white-space: pre-wrap; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+  <h1>Capture URLs</h1>
+  <p>Enter one URL per line, then submit. Capturing happens in the background.</p>
+  <textarea id="urls" rows="6" placeholder="https://example.com&#10;https://example.org"></textarea>
+  <br>
+  <button id="submitBtn">Capture</button>
+
+  <div id="jobMeta"></div>
+  <table id="resultsTable" hidden>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Requested URL</th>
+        <th>Final URL</th>
+        <th>Title</th>
+        <th>HTTP</th>
+        <th>Captured (UTC)</th>
+        <th>Status</th>
+        <th>Files</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+const submitBtn = document.getElementById('submitBtn');
+const urlsEl = document.getElementById('urls');
+const jobMeta = document.getElementById('jobMeta');
+const table = document.getElementById('resultsTable');
+const tbody = table.querySelector('tbody');
+
+let pollTimer = null;
+
+submitBtn.addEventListener('click', async () => {
+  const urls = urlsEl.value
+    .split('\n')
+    .map((u) => u.trim())
+    .filter((u) => u.length > 0);
+
+  if (urls.length === 0) {
+    jobMeta.textContent = 'Enter at least one URL.';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  jobMeta.textContent = 'Submitting...';
+  table.hidden = true;
+  tbody.innerHTML = '';
+
+  try {
+    const res = await fetch('/capture', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      jobMeta.textContent = 'Error: ' + (data.error || res.statusText);
+      submitBtn.disabled = false;
+      return;
+    }
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => pollJob(data.jobId), 1500);
+    pollJob(data.jobId);
+  } catch (err) {
+    jobMeta.textContent = 'Request failed: ' + err.message;
+    submitBtn.disabled = false;
+  }
+});
+
+async function pollJob(jobId) {
+  const res = await fetch('/jobs/' + jobId);
+  const job = await res.json();
+  if (!res.ok) {
+    jobMeta.textContent = 'Error: ' + (job.error || res.statusText);
+    clearInterval(pollTimer);
+    submitBtn.disabled = false;
+    return;
+  }
+
+  jobMeta.innerHTML = `Job <code>${job.id}</code> &mdash; status: <strong>${job.status}</strong> (${job.completed}/${job.total})`;
+
+  table.hidden = job.results.length === 0;
+  tbody.innerHTML = job.results.map((r, i) => {
+    const statusClass = 'status-' + r.status;
+    const files = r.status === 'success'
+      ? `<a href="/captures/${job.id}/${r.folder}/screenshot.png" target="_blank">screenshot</a> | ` +
+        `<a href="/captures/${job.id}/${r.folder}/page.html" target="_blank">html</a> | ` +
+        `<a href="/captures/${job.id}/${r.folder}/metadata.json" target="_blank">metadata</a>`
+      : `<a href="/captures/${job.id}/${r.folder}/metadata.json" target="_blank">metadata</a>`;
+    const errorRow = r.error ? `<div class="error-msg">${escapeHtml(r.error)}</div>` : '';
+    return `<tr>
+      <td>${i}</td>
+      <td>${escapeHtml(r.requestedUrl)}</td>
+      <td>${escapeHtml(r.finalUrl || '')}</td>
+      <td>${escapeHtml(r.title || '')}</td>
+      <td>${r.httpStatus ?? ''}</td>
+      <td>${r.capturedAt || ''}</td>
+      <td class="${statusClass}">${r.status}${errorRow}</td>
+      <td>${files}</td>
+    </tr>`;
+  }).join('');
+
+  if (job.status === 'completed' || job.status === 'failed') {
+    clearInterval(pollTimer);
+    submitBtn.disabled = false;
+  }
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>

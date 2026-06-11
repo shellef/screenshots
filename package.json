@@ -1,0 +1,15 @@
+{
+  "name": "profile-screenshots",
+  "version": "1.0.0",
+  "description": "MVP web service to capture screenshots, HTML, and metadata snapshots of URLs for evidentiary preservation.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "postinstall": "playwright install chromium && bash scripts/install-fonts.sh"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "playwright": "^1.48.0"
+  }
+}
