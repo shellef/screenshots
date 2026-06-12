@@ -33,6 +33,9 @@
   <p>Enter one URL per line, then submit. Capturing happens in the background.</p>
   <textarea id="urls" rows="6" placeholder="https://example.com&#10;https://example.org"></textarea>
   <br>
+  <label for="scrollCount">Scroll count (for infinite-scroll pages, 0 = no scrolling):</label>
+  <input type="number" id="scrollCount" min="0" max="100" value="0" style="width: 70px;">
+  <br>
   <button id="submitBtn">Capture</button>
   <button id="stopBtn" hidden>Stop</button>
 
@@ -66,6 +69,7 @@ fetch('/auth/check').then(async (res) => {
 const submitBtn = document.getElementById('submitBtn');
 const stopBtn = document.getElementById('stopBtn');
 const urlsEl = document.getElementById('urls');
+const scrollCountEl = document.getElementById('scrollCount');
 const jobMeta = document.getElementById('jobMeta');
 const table = document.getElementById('resultsTable');
 const tbody = table.querySelector('tbody');
@@ -95,7 +99,7 @@ submitBtn.addEventListener('click', async () => {
     const res = await fetch('/capture', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urls }),
+      body: JSON.stringify({ urls, scrollCount: Number(scrollCountEl.value) || 0 }),
     });
     const data = await res.json();
     if (!res.ok) {

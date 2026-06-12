@@ -10,7 +10,7 @@ const CAPTURES_DIR = path.join(__dirname, '..', 'captures');
 
 const jobs = new Map();
 
-function createJob(urls, user) {
+function createJob(urls, user, scrollCount = 0) {
   const id = randomUUID();
   const job = {
     id,
@@ -27,7 +27,7 @@ function createJob(urls, user) {
   jobs.set(id, job);
 
   // Fire and forget: processing happens in the background.
-  processJob(job, urls).catch((err) => {
+  processJob(job, urls, scrollCount).catch((err) => {
     logger.error(`Job ${id} failed unexpectedly: ${err.message}`);
     job.status = 'failed';
     job.error = err.message;
@@ -37,7 +37,7 @@ function createJob(urls, user) {
   return job;
 }
 
-async function processJob(job, urls) {
+async function processJob(job, urls, scrollCount = 0) {
   job.status = 'running';
 
   try {
@@ -61,6 +61,7 @@ async function processJob(job, urls) {
       try {
         const result = await captureUrl(browser, url, jobDir, i, {
           isCancelled: () => job.cancelRequested,
+          scrollCount,
         });
         if (result === null) break; // cancelled mid-capture
         job.results.push(result);

@@ -1,5 +1,6 @@
 const fs = require('fs/promises');
 const path = require('path');
+const sharp = require('sharp');
 const logger = require('./logger');
 
 const MAX_RETRIES = 2;
@@ -10,6 +11,11 @@ const SCREENSHOT_TIMEOUT_MS = 30000;
 // Without this, a page that hangs on screenshot (huge/infinite-scroll pages,
 // stuck media, etc.) can block the whole job indefinitely.
 const ATTEMPT_TIMEOUT_MS = 90000;
+const SCROLL_WAIT_MS = 1500;
+// Extra time allowed for the scroll-loading phase on infinite-scroll pages.
+const MAX_SCROLL_TIME_MS = 10 * 60 * 1000;
+const VIEWPORT_WIDTH = 1280;
+const VIEWPORT_HEIGHT = 1024;
 
 function sanitizeForPath(str, maxLen = 80) {
   return str.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, maxLen);
@@ -27,7 +33,7 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function captureUrl(browser, url, outputDir, index, { isCancelled } = {}) {
+async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollCount = 0 } = {}) {
   const folderName = `${String(index).padStart(3, '0')}-${sanitizeForPath(safeHostname(url))}`;
   const captureDir = path.join(outputDir, folderName);
   await fs.mkdir(captureDir, { recursive: true });
@@ -39,7 +45,7 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled } = {}) 
     }
     let context;
     try {
-      context = await browser.newContext({ viewport: { width: 1280, height: 1024 } });
+      context = await browser.newContext({ viewport: { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT } });
       const page = await context.newPage();
       page.setDefaultTimeout(NAV_TIMEOUT_MS);
 
@@ -48,6 +54,58 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled } = {}) 
 
         // Give dynamic / lazy-loaded content a moment to settle before capturing.
         await page.waitForTimeout(2000);
+
+        const isScrollable = scrollCount > 0 && await page.evaluate(
+          () => document.documentElement.scrollHeight > window.innerHeight + 10
+        );
+
+        if (isScrollable) {
+          // Infinite-scroll / virtualized pages only render content near the
+          // current scroll position, so we capture one viewport screenshot per
+          // scroll step and stitch them together rather than relying on a
+          // full-page screenshot (which would mostly show blank placeholders).
+          const screenshots = [await page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS })];
+          const scrollDeadline = Date.now() + MAX_SCROLL_TIME_MS;
+          for (let s = 0; s < scrollCount; s++) {
+            if (Date.now() > scrollDeadline) break;
+            if (isCancelled && isCancelled()) return null;
+            const beforeY = await page.evaluate(() => window.scrollY);
+            await page.evaluate((h) => window.scrollBy(0, h), VIEWPORT_HEIGHT);
+            await page.waitForTimeout(SCROLL_WAIT_MS);
+            const afterY = await page.evaluate(() => window.scrollY);
+            if (afterY <= beforeY) break; // reached the bottom, no further movement
+            screenshots.push(await page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS }));
+          }
+          await page.evaluate(() => window.scrollTo(0, 0));
+
+          const finalUrl = page.url();
+          const title = await page.title();
+          const html = await page.content();
+          const capturedAt = new Date().toISOString();
+
+          const stitched = sharp({
+            create: {
+              width: VIEWPORT_WIDTH,
+              height: VIEWPORT_HEIGHT * screenshots.length,
+              channels: 3,
+              background: { r: 255, g: 255, b: 255 },
+            },
+          }).composite(screenshots.map((buf, i) => ({ input: buf, top: i * VIEWPORT_HEIGHT, left: 0 })));
+          await stitched.png().toFile(path.join(captureDir, 'screenshot.png'));
+          await fs.writeFile(path.join(captureDir, 'page.html'), html, 'utf-8');
+
+          return {
+            requestedUrl: url,
+            finalUrl,
+            title,
+            httpStatus: response ? response.status() : null,
+            capturedAt,
+            attempt,
+            status: 'success',
+            folder: folderName,
+            scrolls: screenshots.length - 1,
+          };
+        }
 
         const finalUrl = page.url();
         const title = await page.title();
@@ -73,8 +131,9 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled } = {}) 
         };
       })();
 
+      const attemptTimeoutMs = ATTEMPT_TIMEOUT_MS + (scrollCount > 0 ? MAX_SCROLL_TIME_MS : 0);
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error(`Capture attempt timed out after ${ATTEMPT_TIMEOUT_MS}ms`)), ATTEMPT_TIMEOUT_MS);
+        setTimeout(() => reject(new Error(`Capture attempt timed out after ${attemptTimeoutMs}ms`)), attemptTimeoutMs);
       });
 
       const metadata = await Promise.race([attemptPromise, timeoutPromise]);

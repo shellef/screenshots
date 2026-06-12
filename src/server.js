@@ -33,7 +33,7 @@ app.use(requireAuth, express.static(path.join(__dirname, '..', 'public')));
 app.use('/captures', requireAuth, express.static(CAPTURES_DIR));
 
 app.post('/capture', requireAuth, (req, res) => {
-  const { urls } = req.body || {};
+  const { urls, scrollCount } = req.body || {};
 
   if (!Array.isArray(urls) || urls.length === 0) {
     return res.status(400).json({ error: 'Request body must include a non-empty "urls" array.' });
@@ -53,8 +53,16 @@ app.post('/capture', requireAuth, (req, res) => {
     }
   }
 
+  let scrollCountNum = 0;
+  if (scrollCount !== undefined) {
+    scrollCountNum = Number(scrollCount);
+    if (!Number.isInteger(scrollCountNum) || scrollCountNum < 0 || scrollCountNum > 100) {
+      return res.status(400).json({ error: '"scrollCount" must be an integer between 0 and 100.' });
+    }
+  }
+
   const user = req.session && req.session.user ? req.session.user : null;
-  const job = createJob(urls, user);
+  const job = createJob(urls, user, scrollCountNum);
   logger.info(`Created job ${job.id} for ${urls.length} URL(s)`, { user });
 
   // Fire and forget: respond immediately, processing continues in the background.
