@@ -27,13 +27,16 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function captureUrl(browser, url, outputDir, index) {
+async function captureUrl(browser, url, outputDir, index, { isCancelled } = {}) {
   const folderName = `${String(index).padStart(3, '0')}-${sanitizeForPath(safeHostname(url))}`;
   const captureDir = path.join(outputDir, folderName);
   await fs.mkdir(captureDir, { recursive: true });
 
   let lastError;
   for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
+    if (isCancelled && isCancelled()) {
+      return null;
+    }
     let context;
     try {
       context = await browser.newContext({ viewport: { width: 1280, height: 1024 } });
@@ -82,7 +85,6 @@ async function captureUrl(browser, url, outputDir, index) {
       return metadata;
     } catch (err) {
       lastError = err;
-      logger.warn(`Capture attempt ${attempt} failed for ${url}: ${err.message}`);
       if (context) {
         // context.close() can itself hang if the browser is wedged (e.g. after
         // a screenshot timeout); don't let it block the next attempt forever.
@@ -91,6 +93,10 @@ async function captureUrl(browser, url, outputDir, index) {
           delay(5000),
         ]);
       }
+      if (isCancelled && isCancelled()) {
+        return null;
+      }
+      logger.warn(`Capture attempt ${attempt} failed for ${url}: ${err.message}`);
       if (attempt <= MAX_RETRIES) {
         await delay(RETRY_DELAY_MS * attempt);
       }

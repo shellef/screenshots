@@ -10,7 +10,7 @@ const fs = require('fs');
 const express = require('express');
 const session = require('express-session');
 const archiver = require('archiver');
-const { createJob, getJob, CAPTURES_DIR } = require('./jobs');
+const { createJob, getJob, cancelJob, CAPTURES_DIR } = require('./jobs');
 const { router: authRouter, requireAuth } = require('./auth');
 const logger = require('./logger');
 
@@ -66,7 +66,17 @@ app.get('/jobs/:id', requireAuth, (req, res) => {
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
   }
-  res.json(job);
+  const { _browser, ...jobJson } = job;
+  res.json(jobJson);
+});
+
+app.post('/jobs/:id/cancel', requireAuth, (req, res) => {
+  const job = cancelJob(req.params.id);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+  const { _browser, ...jobJson } = job;
+  res.json(jobJson);
 });
 
 app.get('/jobs/:id/zip', requireAuth, (req, res) => {

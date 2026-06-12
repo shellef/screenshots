@@ -21,6 +21,7 @@
   .status-success { color: #1a7f37; font-weight: 600; }
   .status-error { color: #c0392b; font-weight: 600; }
   .status-pending, .status-running { color: #b8860b; font-weight: 600; }
+  .status-cancelled { color: #6c757d; font-weight: 600; }
   #jobMeta { margin-top: 1rem; font-size: 0.9rem; color: #555; }
   a { color: #0366d6; }
   .error-msg { color: #c0392b; white-space: pre-wrap; font-size: 0.8rem; }
@@ -33,6 +34,7 @@
   <textarea id="urls" rows="6" placeholder="https://example.com&#10;https://example.org"></textarea>
   <br>
   <button id="submitBtn">Capture</button>
+  <button id="stopBtn" hidden>Stop</button>
 
   <div id="jobMeta"></div>
   <a id="downloadZip" href="#" download hidden><button type="button">Download all as ZIP</button></a>
@@ -62,6 +64,7 @@ fetch('/auth/check').then(async (res) => {
 }).catch(() => {});
 
 const submitBtn = document.getElementById('submitBtn');
+const stopBtn = document.getElementById('stopBtn');
 const urlsEl = document.getElementById('urls');
 const jobMeta = document.getElementById('jobMeta');
 const table = document.getElementById('resultsTable');
@@ -69,6 +72,7 @@ const tbody = table.querySelector('tbody');
 const downloadZip = document.getElementById('downloadZip');
 
 let pollTimer = null;
+let currentJobId = null;
 
 submitBtn.addEventListener('click', async () => {
   const urls = urlsEl.value
@@ -99,12 +103,26 @@ submitBtn.addEventListener('click', async () => {
       submitBtn.disabled = false;
       return;
     }
+    currentJobId = data.jobId;
+    stopBtn.hidden = false;
+    stopBtn.disabled = false;
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(() => pollJob(data.jobId), 1500);
     pollJob(data.jobId);
   } catch (err) {
     jobMeta.textContent = 'Request failed: ' + err.message;
     submitBtn.disabled = false;
+  }
+});
+
+stopBtn.addEventListener('click', async () => {
+  if (!currentJobId) return;
+  stopBtn.disabled = true;
+  try {
+    await fetch(`/jobs/${currentJobId}/cancel`, { method: 'POST' });
+    pollJob(currentJobId);
+  } catch (err) {
+    stopBtn.disabled = false;
   }
 });
 
@@ -148,9 +166,10 @@ async function pollJob(jobId) {
     </tr>`;
   }).join('');
 
-  if (job.status === 'completed' || job.status === 'failed') {
+  if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
     clearInterval(pollTimer);
     submitBtn.disabled = false;
+    stopBtn.hidden = true;
   }
 }
 

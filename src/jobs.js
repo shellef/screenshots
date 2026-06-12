@@ -21,6 +21,8 @@ function createJob(urls, user) {
     total: urls.length,
     completed: 0,
     results: [],
+    cancelRequested: false,
+    _browser: null,
   };
   jobs.set(id, job);
 
@@ -50,29 +52,52 @@ async function processJob(job, urls) {
   const browser = await chromium.launch({
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
+  job._browser = browser;
   try {
     for (let i = 0; i < urls.length; i++) {
+      if (job.cancelRequested) break;
+
       const url = urls[i];
       try {
-        const result = await captureUrl(browser, url, jobDir, i);
+        const result = await captureUrl(browser, url, jobDir, i, {
+          isCancelled: () => job.cancelRequested,
+        });
+        if (result === null) break; // cancelled mid-capture
         job.results.push(result);
       } catch (err) {
+        if (job.cancelRequested) break;
         logger.error(`Unexpected error capturing ${url}: ${err.message}`);
         job.results.push({ requestedUrl: url, status: 'error', error: err.message });
       }
       job.completed += 1;
     }
   } finally {
-    await browser.close();
+    job._browser = null;
+    await browser.close().catch(() => {});
   }
 
-  job.status = 'completed';
+  job.status = job.cancelRequested ? 'cancelled' : 'completed';
   job.completedAt = new Date().toISOString();
-  logger.info(`Job ${job.id} completed`, { user: job.user, total: job.total, completed: job.completed });
+  logger.info(`Job ${job.id} ${job.status}`, { user: job.user, total: job.total, completed: job.completed });
 }
 
 function getJob(id) {
   return jobs.get(id);
 }
 
-module.exports = { createJob, getJob, CAPTURES_DIR };
+function cancelJob(id) {
+  const job = jobs.get(id);
+  if (!job) return null;
+
+  if (job.status === 'pending' || job.status === 'running') {
+    job.cancelRequested = true;
+    // Abort the in-flight capture immediately rather than waiting for it to finish.
+    if (job._browser) {
+      job._browser.close().catch(() => {});
+    }
+  }
+
+  return job;
+}
+
+module.exports = { createJob, getJob, cancelJob, CAPTURES_DIR };
