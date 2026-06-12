@@ -10,11 +10,12 @@ const CAPTURES_DIR = path.join(__dirname, '..', 'captures');
 
 const jobs = new Map();
 
-function createJob(urls) {
+function createJob(urls, user) {
   const id = randomUUID();
   const job = {
     id,
     status: 'pending',
+    user: user || null,
     createdAt: new Date().toISOString(),
     completedAt: null,
     total: urls.length,
@@ -67,7 +68,7 @@ async function processJob(job, urls) {
 
   job.status = 'completed';
   job.completedAt = new Date().toISOString();
-  logger.info(`Job ${job.id} completed`, { total: job.total, completed: job.completed });
+  logger.info(`Job ${job.id} completed`, { user: job.user, total: job.total, completed: job.completed });
 }
 
 function getJob(id) {

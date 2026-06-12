@@ -53,8 +53,9 @@ app.post('/capture', requireAuth, (req, res) => {
     }
   }
 
-  const job = createJob(urls);
-  logger.info(`Created job ${job.id} for ${urls.length} URL(s)`);
+  const user = req.session && req.session.user ? req.session.user : null;
+  const job = createJob(urls, user);
+  logger.info(`Created job ${job.id} for ${urls.length} URL(s)`, { user });
 
   // Fire and forget: respond immediately, processing continues in the background.
   res.status(202).json({ jobId: job.id, status: job.status, total: job.total });
