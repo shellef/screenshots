@@ -16,6 +16,9 @@ const SCROLL_WAIT_MS = 1500;
 const MAX_SCROLL_TIME_MS = 10 * 60 * 1000;
 const VIEWPORT_WIDTH = 1280;
 const VIEWPORT_HEIGHT = 1024;
+// Browsers cap rendered image dimensions around 32767px; stay safely under that
+// for each stitched image.
+const MAX_STITCH_SCREENSHOTS = 28;
 
 function sanitizeForPath(str, maxLen = 80) {
   return str.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, maxLen);
@@ -83,15 +86,23 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
           const html = await page.content();
           const capturedAt = new Date().toISOString();
 
-          const stitched = sharp({
-            create: {
-              width: VIEWPORT_WIDTH,
-              height: VIEWPORT_HEIGHT * screenshots.length,
-              channels: 3,
-              background: { r: 255, g: 255, b: 255 },
-            },
-          }).composite(screenshots.map((buf, i) => ({ input: buf, top: i * VIEWPORT_HEIGHT, left: 0 })));
-          await stitched.png().toFile(path.join(captureDir, 'screenshot.png'));
+          // Split into multiple stitched images if there are too many
+          // screenshots for a single image to stay within renderable limits.
+          const screenshotFiles = [];
+          for (let chunkStart = 0; chunkStart < screenshots.length; chunkStart += MAX_STITCH_SCREENSHOTS) {
+            const chunk = screenshots.slice(chunkStart, chunkStart + MAX_STITCH_SCREENSHOTS);
+            const fileName = chunkStart === 0 ? 'screenshot.png' : `screenshot-${chunkStart / MAX_STITCH_SCREENSHOTS + 1}.png`;
+            const stitched = sharp({
+              create: {
+                width: VIEWPORT_WIDTH,
+                height: VIEWPORT_HEIGHT * chunk.length,
+                channels: 3,
+                background: { r: 255, g: 255, b: 255 },
+              },
+            }).composite(chunk.map((buf, i) => ({ input: buf, top: i * VIEWPORT_HEIGHT, left: 0 })));
+            await stitched.png().toFile(path.join(captureDir, fileName));
+            screenshotFiles.push(fileName);
+          }
           await fs.writeFile(path.join(captureDir, 'page.html'), html, 'utf-8');
 
           return {
@@ -104,6 +115,7 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
             status: 'success',
             folder: folderName,
             scrolls: screenshots.length - 1,
+            screenshots: screenshotFiles,
           };
         }
 
@@ -128,6 +140,7 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
           attempt,
           status: 'success',
           folder: folderName,
+          screenshots: ['screenshot.png'],
         };
       })();
 

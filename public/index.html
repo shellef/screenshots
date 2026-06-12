@@ -153,9 +153,11 @@ async function pollJob(jobId) {
   tbody.innerHTML = job.results.map((r, i) => {
     const statusClass = 'status-' + r.status;
     const files = r.status === 'success'
-      ? `<a href="/captures/${job.id}/${r.folder}/screenshot.png" target="_blank">screenshot</a> | ` +
-        `<a href="/captures/${job.id}/${r.folder}/page.html" target="_blank">html</a> | ` +
-        `<a href="/captures/${job.id}/${r.folder}/metadata.json" target="_blank">metadata</a>`
+      ? (r.screenshots || ['screenshot.png']).map((name, idx) =>
+          `<a href="/captures/${job.id}/${r.folder}/${name}" target="_blank">screenshot${idx > 0 ? ' ' + (idx + 1) : ''}</a>`
+        ).join(' | ') +
+        ` | <a href="/captures/${job.id}/${r.folder}/page.html" target="_blank">html</a>` +
+        ` | <a href="/captures/${job.id}/${r.folder}/metadata.json" target="_blank">metadata</a>`
       : `<a href="/captures/${job.id}/${r.folder}/metadata.json" target="_blank">metadata</a>`;
     const errorRow = r.error ? `<div class="error-msg">${escapeHtml(r.error)}</div>` : '';
     return `<tr>
