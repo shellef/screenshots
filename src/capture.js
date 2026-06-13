@@ -92,13 +92,20 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
       const attemptPromise = (async () => {
         const response = await page.goto(url, { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
 
-        // Give dynamic / lazy-loaded content a moment to settle before capturing.
-        await page.waitForTimeout(2000);
-
         // X/Twitter pages are always scrollable, but right after load
         // scrollHeight may not yet reflect that (tweets are still being
         // fetched), so don't rely on the scrollHeight check for them.
         const isTwitter = TWITTER_HOSTS.has(safeHostname(url));
+
+        // Give dynamic / lazy-loaded content a moment to settle before
+        // capturing. X is a client-rendered SPA that can take much longer
+        // than that to paint (especially logged-in on a slow host), so for it
+        // wait until tweet articles actually appear in the DOM.
+        await page.waitForTimeout(2000);
+        if (isTwitter) {
+          await page.waitForSelector('article', { timeout: 15000 }).catch(() => {});
+          await page.waitForTimeout(1000);
+        }
         const isScrollable = scrollCount > 0 && (isTwitter || await page.evaluate(
           () => document.documentElement.scrollHeight > window.innerHeight + 10
         ));
