@@ -130,12 +130,12 @@ See `src/cleanup.js` to adjust these limits.
   doesn't scroll with the background, so scroll-and-stitch captures show
   duplicated content. No fix applied; a proposed general "duplicate-frame
   detection" pass over stitched screenshots was deferred.
-- **X/Twitter "blue bar" over text in scroll captures**: in earlier testing
-  (logged out), repeated scroll steps sometimes left a UI element overlapping
-  post text in the stitched image. An attempted fix (80% overlap + crop) did not
-  help and was reverted. Logging in via `TWITTER_AUTH_TOKEN`/`TWITTER_CT0` (see
-  "Twitter/X authentication" above) avoided this in the most recent test, but it
-  hasn't been confirmed across multiple profiles/scroll depths.
+- **X/Twitter "blue bar" over text in scroll captures**: resolved. Logging in
+  via `TWITTER_AUTH_TOKEN`/`TWITTER_CT0` (see "Twitter/X authentication" above)
+  avoids X's logged-out "teaser" page, and `src/capture.js` now scrolls X/Twitter
+  pages by 80% of the viewport height per step (`TWITTER_SCROLL_STEP`/
+  `TWITTER_OVERLAP`), cropping the overlapping top portion (which includes a
+  static top bar) off every screenshot after the first before stitching.
 
 ## Notes
 
