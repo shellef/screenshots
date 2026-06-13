@@ -42,6 +42,15 @@ If `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are not set, the login page shows
 "Google auth not configured" — set `REQUIRE_AUTH=false` in that case to keep the
 site usable.
 
+## Twitter/X authentication
+
+Logged-out X/Twitter pages sometimes render a non-scrollable "teaser" with only
+a handful of posts. If `TWITTER_AUTH_TOKEN` and `TWITTER_CT0` are set in `.env`,
+captures of `x.com`/`twitter.com` URLs are made while logged in as that account,
+which gives the full scrollable timeline. Get these values from browser dev tools
+(F12 > Application > Cookies > x.com) — see `.env.example`. The `../x-scrape`
+project's `.env` has a working set of values for the same account.
+
 ## Run
 
 ```bash
@@ -58,6 +67,17 @@ sequentially in the background):
 curl -X POST http://localhost:3000/capture \
   -H "Content-Type: application/json" \
   -d '{"urls": ["https://example.com", "https://example.org"]}'
+```
+
+For infinite-scroll pages, pass `scrollCount` (0-100, default 0) to capture
+additional viewport screenshots while scrolling down, stitched into one or more
+`screenshot-N.png` files (see "Output" below). Pages without a scrollbar ignore
+this option. A scroll phase is capped at 10 minutes total.
+
+```bash
+curl -X POST http://localhost:3000/capture \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://x.com/someuser"], "scrollCount": 10}'
 ```
 
 Response:
@@ -85,9 +105,11 @@ curl -o captures.zip http://localhost:3000/jobs/<uuid>/zip
 
 Each job writes to `captures/<jobId>/<index>-<hostname>/`:
 
-- `screenshot.png` — full-page screenshot
+- `screenshot.png` (and `screenshot-2.png`, ... if `scrollCount` produced enough
+  steps to exceed the per-image render limit) — full-page or stitched screenshot(s)
 - `page.html` — raw HTML at capture time
-- `metadata.json` — URL, final URL, title, timestamp, HTTP status, status/error
+- `metadata.json` — URL, final URL, title, timestamp, HTTP status, status/error,
+  and (for scroll captures) `scrolls` and `screenshots` (list of image filenames)
 
 `captures/` is local-only for this MVP. To preserve captures in Google Drive, sync or
 move this directory there (e.g. via Google Drive Desktop, or `rclone copy`).
@@ -101,6 +123,19 @@ At the start of every capture run, `captures/` is automatically pruned:
   job folders are deleted (oldest first) until it's back under the limit
 
 See `src/cleanup.js` to adjust these limits.
+
+## Known issues / deferred work
+
+- **Facebook post permalinks**: a `position: fixed` modal overlays the page and
+  doesn't scroll with the background, so scroll-and-stitch captures show
+  duplicated content. No fix applied; a proposed general "duplicate-frame
+  detection" pass over stitched screenshots was deferred.
+- **X/Twitter "blue bar" over text in scroll captures**: in earlier testing
+  (logged out), repeated scroll steps sometimes left a UI element overlapping
+  post text in the stitched image. An attempted fix (80% overlap + crop) did not
+  help and was reverted. Logging in via `TWITTER_AUTH_TOKEN`/`TWITTER_CT0` (see
+  "Twitter/X authentication" above) avoided this in the most recent test, but it
+  hasn't been confirmed across multiple profiles/scroll depths.
 
 ## Notes
 

@@ -36,6 +36,24 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const TWITTER_HOSTS = new Set(['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com']);
+
+// Logged-out X/Twitter pages often render a non-scrollable "teaser" with only
+// a handful of tweets. Injecting auth cookies lets us capture as a logged-in
+// user, which gives the full scrollable timeline.
+async function addTwitterAuthCookies(context, url) {
+  const { TWITTER_AUTH_TOKEN, TWITTER_CT0 } = process.env;
+  if (!TWITTER_AUTH_TOKEN || !TWITTER_CT0) return;
+  if (!TWITTER_HOSTS.has(safeHostname(url))) return;
+
+  await context.addCookies([
+    { name: 'auth_token', value: TWITTER_AUTH_TOKEN, domain: '.x.com', path: '/' },
+    { name: 'ct0', value: TWITTER_CT0, domain: '.x.com', path: '/' },
+    { name: 'auth_token', value: TWITTER_AUTH_TOKEN, domain: '.twitter.com', path: '/' },
+    { name: 'ct0', value: TWITTER_CT0, domain: '.twitter.com', path: '/' },
+  ]);
+}
+
 async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollCount = 0 } = {}) {
   const folderName = `${String(index).padStart(3, '0')}-${sanitizeForPath(safeHostname(url))}`;
   const captureDir = path.join(outputDir, folderName);
@@ -49,6 +67,7 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
     let context;
     try {
       context = await browser.newContext({ viewport: { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT } });
+      await addTwitterAuthCookies(context, url);
       const page = await context.newPage();
       page.setDefaultTimeout(NAV_TIMEOUT_MS);
 
