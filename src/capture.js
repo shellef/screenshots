@@ -19,6 +19,12 @@ const VIEWPORT_HEIGHT = 1024;
 // Browsers cap rendered image dimensions around 32767px; stay safely under that
 // for each stitched image.
 const MAX_STITCH_SCREENSHOTS = 28;
+// X/Twitter has a static bar across the top of the viewport (~6% of the
+// height). Scrolling by less than a full viewport each step leaves an
+// overlap that includes this bar, which we crop off every screenshot after
+// the first so it only appears once, at the top of the stitched image.
+const TWITTER_SCROLL_STEP = Math.round(VIEWPORT_HEIGHT * 0.8);
+const TWITTER_OVERLAP = VIEWPORT_HEIGHT - TWITTER_SCROLL_STEP;
 
 function sanitizeForPath(str, maxLen = 80) {
   return str.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, maxLen);
@@ -34,6 +40,18 @@ function safeHostname(url) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Poll until the page becomes scrollable or timeoutMs elapses. Used for
+// X/Twitter SPA tabs (e.g. "with_replies"), which can take longer than the
+// initial settle wait to fetch and render their content.
+async function waitForScrollable(page, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const scrollable = await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 10);
+    if (scrollable) return;
+    await page.waitForTimeout(300);
+  }
 }
 
 const TWITTER_HOSTS = new Set(['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com']);
@@ -77,22 +95,34 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
         // Give dynamic / lazy-loaded content a moment to settle before capturing.
         await page.waitForTimeout(2000);
 
-        const isScrollable = scrollCount > 0 && await page.evaluate(
+        // X/Twitter pages are always scrollable, but right after load
+        // scrollHeight may not yet reflect that (tweets are still being
+        // fetched), so don't rely on the scrollHeight check for them.
+        const isTwitter = TWITTER_HOSTS.has(safeHostname(url));
+        const isScrollable = scrollCount > 0 && (isTwitter || await page.evaluate(
           () => document.documentElement.scrollHeight > window.innerHeight + 10
-        );
+        ));
 
         if (isScrollable) {
           // Infinite-scroll / virtualized pages only render content near the
           // current scroll position, so we capture one viewport screenshot per
           // scroll step and stitch them together rather than relying on a
           // full-page screenshot (which would mostly show blank placeholders).
+          const scrollStep = isTwitter ? TWITTER_SCROLL_STEP : VIEWPORT_HEIGHT;
+
+          // X/Twitter SPA tabs (e.g. "with_replies") may still be fetching
+          // content at this point; give them extra time to become scrollable.
+          if (isTwitter) {
+            await waitForScrollable(page, 8000);
+          }
+
           const screenshots = [await page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS })];
           const scrollDeadline = Date.now() + MAX_SCROLL_TIME_MS;
           for (let s = 0; s < scrollCount; s++) {
             if (Date.now() > scrollDeadline) break;
             if (isCancelled && isCancelled()) return null;
             const beforeY = await page.evaluate(() => window.scrollY);
-            await page.evaluate((h) => window.scrollBy(0, h), VIEWPORT_HEIGHT);
+            await page.evaluate((h) => window.scrollBy(0, h), scrollStep);
             await page.waitForTimeout(SCROLL_WAIT_MS);
             const afterY = await page.evaluate(() => window.scrollY);
             if (afterY <= beforeY) break; // reached the bottom, no further movement
@@ -105,20 +135,38 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
           const html = await page.content();
           const capturedAt = new Date().toISOString();
 
+          // For Twitter, each screenshot after the first overlaps the previous
+          // one by TWITTER_OVERLAP px (which includes the static top bar), so
+          // crop that off and use the shorter step height when stitching.
+          const frames = await Promise.all(screenshots.map(async (buf, i) => {
+            if (!isTwitter || i === 0) return { buf, height: VIEWPORT_HEIGHT };
+            const cropped = await sharp(buf)
+              .extract({ left: 0, top: TWITTER_OVERLAP, width: VIEWPORT_WIDTH, height: TWITTER_SCROLL_STEP })
+              .toBuffer();
+            return { buf: cropped, height: TWITTER_SCROLL_STEP };
+          }));
+
           // Split into multiple stitched images if there are too many
           // screenshots for a single image to stay within renderable limits.
           const screenshotFiles = [];
-          for (let chunkStart = 0; chunkStart < screenshots.length; chunkStart += MAX_STITCH_SCREENSHOTS) {
-            const chunk = screenshots.slice(chunkStart, chunkStart + MAX_STITCH_SCREENSHOTS);
+          for (let chunkStart = 0; chunkStart < frames.length; chunkStart += MAX_STITCH_SCREENSHOTS) {
+            const chunk = frames.slice(chunkStart, chunkStart + MAX_STITCH_SCREENSHOTS);
             const fileName = chunkStart === 0 ? 'screenshot.png' : `screenshot-${chunkStart / MAX_STITCH_SCREENSHOTS + 1}.png`;
+            const chunkHeight = chunk.reduce((sum, f) => sum + f.height, 0);
+            const composites = [];
+            let top = 0;
+            for (const frame of chunk) {
+              composites.push({ input: frame.buf, top, left: 0 });
+              top += frame.height;
+            }
             const stitched = sharp({
               create: {
                 width: VIEWPORT_WIDTH,
-                height: VIEWPORT_HEIGHT * chunk.length,
+                height: chunkHeight,
                 channels: 3,
                 background: { r: 255, g: 255, b: 255 },
               },
-            }).composite(chunk.map((buf, i) => ({ input: buf, top: i * VIEWPORT_HEIGHT, left: 0 })));
+            }).composite(composites);
             await stitched.png().toFile(path.join(captureDir, fileName));
             screenshotFiles.push(fileName);
           }
