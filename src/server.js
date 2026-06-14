@@ -87,22 +87,28 @@ app.post('/jobs/:id/cancel', requireAuth, (req, res) => {
   res.json(jobJson);
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 app.get('/jobs/:id/zip', requireAuth, (req, res) => {
   const job = getJob(req.params.id);
-  if (!job) {
+  // Job state is in-memory only and is lost on server restart, but the
+  // captured files persist on disk - fall back to those if the id is a
+  // well-formed job id, even if it's no longer in memory.
+  const jobId = job ? job.id : req.params.id;
+  if (!job && !UUID_RE.test(jobId)) {
     return res.status(404).json({ error: 'Job not found' });
   }
 
-  const jobDir = path.join(CAPTURES_DIR, job.id);
+  const jobDir = path.join(CAPTURES_DIR, jobId);
   if (!fs.existsSync(jobDir)) {
     return res.status(404).json({ error: 'No captures found for this job' });
   }
 
-  res.attachment(`captures-${job.id}.zip`);
+  res.attachment(`captures-${jobId}.zip`);
 
   const archive = archiver('zip', { zlib: { level: 9 } });
   archive.on('error', (err) => {
-    logger.error(`Zip error for job ${job.id}: ${err.message}`);
+    logger.error(`Zip error for job ${jobId}: ${err.message}`);
     res.status(500).end();
   });
 
