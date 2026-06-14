@@ -106,7 +106,11 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
           await page.waitForSelector('article', { timeout: 15000 }).catch(() => {});
           await page.waitForTimeout(1000);
         }
-        const isScrollable = scrollCount > 0 && (isTwitter || await page.evaluate(
+        // X/Twitter pages always go through the per-viewport capture path
+        // below (even with scrollCount=0, producing a single screenshot):
+        // `fullPage: true` resizes the page to its full scrollHeight, which
+        // breaks X's viewport-sized layout and renders blank.
+        const isScrollable = isTwitter || (scrollCount > 0 && await page.evaluate(
           () => document.documentElement.scrollHeight > window.innerHeight + 10
         ));
 
