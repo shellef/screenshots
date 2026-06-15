@@ -117,7 +117,9 @@ app.get('/jobs/:id/zip', requireAuth, async (req, res) => {
 
   const results = await loadResults(jobDir, job);
   archive.append(buildIndexHtml(jobId, results), { name: 'index.html' });
-  archive.directory(jobDir, false);
+  // page.html files are kept on disk for debugging but omitted from the zip
+  // to keep download size down.
+  archive.directory(jobDir, false, (entry) => (entry.name.endsWith('/page.html') ? false : entry));
   archive.finalize();
 });
 
