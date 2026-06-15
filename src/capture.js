@@ -83,7 +83,7 @@ async function addTwitterAuthCookies(context, url) {
 }
 
 async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollCount = 0 } = {}) {
-  const folderName = `${String(index).padStart(3, '0')}-${sanitizeForPath(safeHostname(url))}`;
+  const folderName = `${String(index + 1).padStart(3, '0')}-${sanitizeForPath(safeHostname(url))}`;
   const captureDir = path.join(outputDir, folderName);
   await fs.mkdir(captureDir, { recursive: true });
 

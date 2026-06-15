@@ -100,7 +100,7 @@ function render(filterText) {
     const errorRow = r.error ? \`<div class="error-msg">\${escapeHtml(r.error)}</div>\` : '';
 
     return \`<tr>
-      <td>\${i}</td>
+      <td>\${i + 1}</td>
       <td>\${escapeHtml(r.requestedUrl)}</td>
       <td>\${escapeHtml(r.finalUrl || '')}</td>
       <td>\${escapeHtml(r.title || '')}</td>
