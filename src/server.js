@@ -12,6 +12,7 @@ const session = require('express-session');
 const archiver = require('archiver');
 const { createJob, getJob, cancelJob, CAPTURES_DIR } = require('./jobs');
 const { router: authRouter, requireAuth } = require('./auth');
+const { loadResults, buildIndexHtml } = require('./zipIndex');
 const logger = require('./logger');
 
 const app = express();
@@ -89,7 +90,7 @@ app.post('/jobs/:id/cancel', requireAuth, (req, res) => {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-app.get('/jobs/:id/zip', requireAuth, (req, res) => {
+app.get('/jobs/:id/zip', requireAuth, async (req, res) => {
   const job = getJob(req.params.id);
   // Job state is in-memory only and is lost on server restart, but the
   // captured files persist on disk - fall back to those if the id is a
@@ -113,6 +114,9 @@ app.get('/jobs/:id/zip', requireAuth, (req, res) => {
   });
 
   archive.pipe(res);
+
+  const results = await loadResults(jobDir, job);
+  archive.append(buildIndexHtml(jobId, results), { name: 'index.html' });
   archive.directory(jobDir, false);
   archive.finalize();
 });

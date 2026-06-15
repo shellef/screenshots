@@ -42,6 +42,16 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// A blank/solid-color screenshot (e.g. a page that failed to render) has
+// near-zero variance across every channel. Used to trigger a retry instead of
+// saving an unusable capture.
+const BLANK_STDEV_THRESHOLD = 1;
+
+async function isBlankScreenshot(buf) {
+  const stats = await sharp(buf).stats();
+  return stats.channels.every((c) => c.stdev < BLANK_STDEV_THRESHOLD);
+}
+
 // Poll until the page becomes scrollable or timeoutMs elapses. Used for
 // X/Twitter SPA tabs (e.g. "with_replies"), which can take longer than the
 // initial settle wait to fetch and render their content.
@@ -128,6 +138,9 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
           }
 
           const screenshots = [await page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS })];
+          if (await isBlankScreenshot(screenshots[0])) {
+            throw new Error('Screenshot appears blank');
+          }
           const scrollDeadline = Date.now() + MAX_SCROLL_TIME_MS;
           for (let s = 0; s < scrollCount; s++) {
             if (Date.now() > scrollDeadline) break;
@@ -202,11 +215,15 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
         const html = await page.content();
         const capturedAt = new Date().toISOString();
 
-        await page.screenshot({
-          path: path.join(captureDir, 'screenshot.png'),
+        const screenshotBuf = await page.screenshot({
+          type: 'png',
           fullPage: true,
           timeout: SCREENSHOT_TIMEOUT_MS,
         });
+        if (await isBlankScreenshot(screenshotBuf)) {
+          throw new Error('Screenshot appears blank');
+        }
+        await fs.writeFile(path.join(captureDir, 'screenshot.png'), screenshotBuf);
         await fs.writeFile(path.join(captureDir, 'page.html'), html, 'utf-8');
 
         return {
