@@ -30,7 +30,11 @@ app.use(session({
 
 app.use(authRouter);
 
-app.use(requireAuth, express.static(path.join(__dirname, '..', 'public')));
+app.use(requireAuth, express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 app.use('/captures', requireAuth, express.static(CAPTURES_DIR));
 
 app.post('/capture', requireAuth, (req, res) => {
