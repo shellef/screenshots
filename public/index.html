@@ -140,7 +140,10 @@ async function pollJob(jobId) {
     return;
   }
 
-  jobMeta.innerHTML = `Job <code>${job.id}</code> &mdash; status: <strong>${job.status}</strong> (${job.completed}/${job.total})`;
+  const elapsedMs = Date.now() - new Date(job.createdAt).getTime();
+  const avgSec = job.completed > 0 ? (elapsedMs / job.completed / 1000).toFixed(1) : null;
+  const avgStr = avgSec !== null ? ` &mdash; avg ${avgSec}s/URL` : '';
+  jobMeta.innerHTML = `Job <code>${job.id}</code> &mdash; status: <strong>${job.status}</strong> (${job.completed}/${job.total})${avgStr}`;
 
   if (job.results.length > 0) {
     downloadZip.href = `/jobs/${job.id}/zip`;
