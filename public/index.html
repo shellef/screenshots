@@ -101,6 +101,7 @@ submitBtn.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ urls, scrollCount: Number(scrollCountEl.value) || 0 }),
     });
+    if (handleAuthFailure(res)) return;
     const data = await res.json();
     if (!res.ok) {
       jobMeta.textContent = 'Error: ' + (data.error || res.statusText);
@@ -130,8 +131,17 @@ stopBtn.addEventListener('click', async () => {
   }
 });
 
+function handleAuthFailure(res) {
+  if (res.status === 401 || res.redirected) {
+    window.location.href = '/';
+    return true;
+  }
+  return false;
+}
+
 async function pollJob(jobId) {
   const res = await fetch('/jobs/' + jobId);
+  if (handleAuthFailure(res)) return;
   const job = await res.json();
   if (!res.ok) {
     jobMeta.textContent = 'Error: ' + (job.error || res.statusText);
