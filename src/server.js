@@ -61,8 +61,8 @@ app.post('/capture', requireAuth, (req, res) => {
   let scrollCountNum = 0;
   if (scrollCount !== undefined) {
     scrollCountNum = Number(scrollCount);
-    if (!Number.isInteger(scrollCountNum) || scrollCountNum < 0 || scrollCountNum > 100) {
-      return res.status(400).json({ error: '"scrollCount" must be an integer between 0 and 100.' });
+    if (!Number.isInteger(scrollCountNum) || scrollCountNum < 0 || scrollCountNum > 100000) {
+      return res.status(400).json({ error: '"scrollCount" must be an integer between 0 and 100000.' });
     }
   }
 

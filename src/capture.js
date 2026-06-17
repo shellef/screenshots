@@ -82,7 +82,7 @@ async function addTwitterAuthCookies(context, url) {
   ]);
 }
 
-async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollCount = 0 } = {}) {
+async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollCount = 0, onStitch } = {}) {
   const folderName = `${String(index + 1).padStart(3, '0')}-${sanitizeForPath(safeHostname(url))}`;
   const captureDir = path.join(outputDir, folderName);
   await fs.mkdir(captureDir, { recursive: true });
@@ -137,45 +137,20 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
             await waitForScrollable(page, 8000);
           }
 
-          const screenshots = [await page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS })];
-          if (await isBlankScreenshot(screenshots[0])) {
-            throw new Error('Screenshot appears blank');
-          }
-          const scrollDeadline = Date.now() + MAX_SCROLL_TIME_MS;
-          for (let s = 0; s < scrollCount; s++) {
-            if (Date.now() > scrollDeadline) break;
-            if (isCancelled && isCancelled()) return null;
-            const beforeY = await page.evaluate(() => window.scrollY);
-            await page.evaluate((h) => window.scrollBy(0, h), scrollStep);
-            await page.waitForTimeout(SCROLL_WAIT_MS);
-            const afterY = await page.evaluate(() => window.scrollY);
-            if (afterY <= beforeY) break; // reached the bottom, no further movement
-            screenshots.push(await page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS }));
-          }
-          await page.evaluate(() => window.scrollTo(0, 0));
-
-          const finalUrl = page.url();
-          const title = await page.title();
-          const html = await page.content();
-          const capturedAt = new Date().toISOString();
-
-          // For Twitter, each screenshot after the first overlaps the previous
-          // one by TWITTER_OVERLAP px (which includes the static top bar), so
-          // crop that off and use the shorter step height when stitching.
-          const frames = await Promise.all(screenshots.map(async (buf, i) => {
-            if (!isTwitter || i === 0) return { buf, height: VIEWPORT_HEIGHT };
+          // Crop a raw viewport buffer into a frame {buf, height}.
+          // For Twitter, every frame after the first overlaps the previous one
+          // by TWITTER_OVERLAP px (the static top bar), so we crop it off.
+          const toFrame = async (buf, isFirst) => {
+            if (!isTwitter || isFirst) return { buf, height: VIEWPORT_HEIGHT };
             const cropped = await sharp(buf)
               .extract({ left: 0, top: TWITTER_OVERLAP, width: VIEWPORT_WIDTH, height: TWITTER_SCROLL_STEP })
               .toBuffer();
             return { buf: cropped, height: TWITTER_SCROLL_STEP };
-          }));
+          };
 
-          // Split into multiple stitched images if there are too many
-          // screenshots for a single image to stay within renderable limits.
-          const screenshotFiles = [];
-          for (let chunkStart = 0; chunkStart < frames.length; chunkStart += MAX_STITCH_SCREENSHOTS) {
-            const chunk = frames.slice(chunkStart, chunkStart + MAX_STITCH_SCREENSHOTS);
-            const fileName = chunkStart === 0 ? 'screenshot.png' : `screenshot-${chunkStart / MAX_STITCH_SCREENSHOTS + 1}.png`;
+          // Stitch a chunk of frames into a single PNG and save it.
+          const flushChunk = async (chunk, stitchIndex) => {
+            const fileName = stitchIndex === 0 ? 'screenshot.png' : `screenshot-${stitchIndex + 1}.png`;
             const chunkHeight = chunk.reduce((sum, f) => sum + f.height, 0);
             const composites = [];
             let top = 0;
@@ -183,17 +158,56 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
               composites.push({ input: frame.buf, top, left: 0 });
               top += frame.height;
             }
-            const stitched = sharp({
-              create: {
-                width: VIEWPORT_WIDTH,
-                height: chunkHeight,
-                channels: 3,
-                background: { r: 255, g: 255, b: 255 },
-              },
-            }).composite(composites);
-            await stitched.png().toFile(path.join(captureDir, fileName));
-            screenshotFiles.push(fileName);
+            await sharp({
+              create: { width: VIEWPORT_WIDTH, height: chunkHeight, channels: 3, background: { r: 255, g: 255, b: 255 } },
+            }).composite(composites).png().toFile(path.join(captureDir, fileName));
+            return fileName;
+          };
+
+          const firstBuf = await page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS });
+          if (await isBlankScreenshot(firstBuf)) {
+            throw new Error('Screenshot appears blank');
           }
+
+          const screenshotFiles = [];
+          let chunk = [await toFrame(firstBuf, true)];
+          let totalScrolls = 0;
+          const scrollDeadline = Date.now() + MAX_SCROLL_TIME_MS;
+
+          for (let s = 0; s < scrollCount; s++) {
+            if (Date.now() > scrollDeadline) break;
+            if (isCancelled && isCancelled()) return null;
+            const beforeY = await page.evaluate(() => window.scrollY);
+            await page.evaluate((h) => window.scrollBy(0, h), scrollStep);
+            await page.waitForTimeout(SCROLL_WAIT_MS);
+            const afterY = await page.evaluate(() => window.scrollY);
+            if (afterY <= beforeY) break; // reached the bottom
+            totalScrolls++;
+            chunk.push(await toFrame(await page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS }), false));
+
+            // Flush completed chunk immediately so the caller can report progress.
+            if (chunk.length === MAX_STITCH_SCREENSHOTS) {
+              const fileName = await flushChunk(chunk, screenshotFiles.length);
+              screenshotFiles.push(fileName);
+              if (onStitch) onStitch(fileName, [...screenshotFiles], folderName);
+              chunk = [];
+            }
+          }
+
+          // Flush any remaining frames.
+          if (chunk.length > 0) {
+            const fileName = await flushChunk(chunk, screenshotFiles.length);
+            screenshotFiles.push(fileName);
+            if (onStitch) onStitch(fileName, [...screenshotFiles], folderName);
+          }
+
+          await page.evaluate(() => window.scrollTo(0, 0));
+
+          const finalUrl = page.url();
+          const title = await page.title();
+          const html = await page.content();
+          const capturedAt = new Date().toISOString();
+
           await fs.writeFile(path.join(captureDir, 'page.html'), html, 'utf-8');
 
           return {
@@ -205,7 +219,7 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
             attempt,
             status: 'success',
             folder: folderName,
-            scrolls: screenshots.length - 1,
+            scrolls: totalScrolls,
             screenshots: screenshotFiles,
           };
         }

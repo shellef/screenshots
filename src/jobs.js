@@ -59,12 +59,27 @@ async function processJob(job, urls, scrollCount = 0) {
 
       const url = urls[i];
       try {
+        // For scroll jobs, onStitch fires after each stitch is saved so the UI
+        // can show incremental progress. We update a single pre-allocated slot
+        // in job.results rather than appending a new row per stitch.
+        let slotIndex = -1;
         const result = await captureUrl(browser, url, jobDir, i, {
           isCancelled: () => job.cancelRequested,
           scrollCount,
+          onStitch: (fileName, allSoFar, folderName) => {
+            if (slotIndex === -1) {
+              slotIndex = job.results.length;
+              job.results.push({ requestedUrl: url, status: 'running', folder: folderName, screenshots: [] });
+            }
+            job.results[slotIndex] = { ...job.results[slotIndex], screenshots: allSoFar, status: 'success' };
+          },
         });
         if (result === null) break; // cancelled mid-capture
-        job.results.push(result);
+        if (slotIndex === -1) {
+          job.results.push(result);
+        } else {
+          job.results[slotIndex] = result;
+        }
       } catch (err) {
         if (job.cancelRequested) break;
         logger.error(`Unexpected error capturing ${url}: ${err.message}`);
