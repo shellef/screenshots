@@ -12,8 +12,21 @@ const SCREENSHOT_TIMEOUT_MS = 30000;
 // stuck media, etc.) can block the whole job indefinitely.
 const ATTEMPT_TIMEOUT_MS = 90000;
 const SCROLL_WAIT_MS = 1500;
-// Extra time allowed for the scroll-loading phase on infinite-scroll pages.
-const MAX_SCROLL_TIME_MS = 10 * 60 * 1000;
+// When a scroll makes no forward progress (e.g. X's virtualized list recycles
+// DOM nodes and momentarily shrinks scrollHeight, clamping scrollY back), wait
+// this long for content to settle and retry, up to MAX_SCROLL_STALLS times
+// before concluding we've reached the real bottom.
+const SCROLL_STALL_WAIT_MS = 2000;
+const MAX_SCROLL_STALLS = 5;
+// Time budget for the scroll-loading phase, scaled to the number of scrolls
+// requested (a fixed cap would throttle large jobs to however many scrolls fit
+// in it). Observed ~1.8s/scroll; 4s/scroll gives headroom for stall retries.
+// A floor keeps small jobs from being starved.
+const PER_SCROLL_BUDGET_MS = 4000;
+const MIN_SCROLL_TIME_MS = 60 * 1000;
+function scrollTimeBudget(scrollCount) {
+  return Math.max(MIN_SCROLL_TIME_MS, scrollCount * PER_SCROLL_BUDGET_MS);
+}
 const VIEWPORT_WIDTH = 1280;
 const VIEWPORT_HEIGHT = 1024;
 // Browsers cap rendered image dimensions around 32767px; stay safely under that
@@ -35,6 +48,22 @@ function safeHostname(url) {
     return new URL(url).hostname;
   } catch {
     return 'invalid-url';
+  }
+}
+
+// The legacy twitter.com domain now often returns a Cloudflare 520; x.com is
+// the current canonical host and is reliable. Rewrite twitter.com -> x.com and
+// upgrade http -> https so old-style links capture correctly.
+function normalizeUrl(url) {
+  try {
+    const u = new URL(url);
+    if (/(^|\.)twitter\.com$/i.test(u.hostname)) {
+      u.hostname = u.hostname.replace(/twitter\.com$/i, 'x.com');
+    }
+    if (u.protocol === 'http:') u.protocol = 'https:';
+    return u.toString();
+  } catch {
+    return url;
   }
 }
 
@@ -83,6 +112,7 @@ async function addTwitterAuthCookies(context, url) {
 }
 
 async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollCount = 0, onStitch } = {}) {
+  url = normalizeUrl(url);
   const folderName = `${String(index + 1).padStart(3, '0')}-${sanitizeForPath(safeHostname(url))}`;
   const captureDir = path.join(outputDir, folderName);
   await fs.mkdir(captureDir, { recursive: true });
@@ -172,16 +202,36 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
           const screenshotFiles = [];
           let chunk = [await toFrame(firstBuf, true)];
           let totalScrolls = 0;
-          const scrollDeadline = Date.now() + MAX_SCROLL_TIME_MS;
+          let stalls = 0;
+          const scrollDeadline = Date.now() + scrollTimeBudget(scrollCount);
 
           for (let s = 0; s < scrollCount; s++) {
-            if (Date.now() > scrollDeadline) break;
+            if (Date.now() > scrollDeadline) {
+              logger.warn(`Scroll stopped: deadline exceeded after ${totalScrolls} scrolls`, { url });
+              break;
+            }
             if (isCancelled && isCancelled()) return null;
             const beforeY = await page.evaluate(() => window.scrollY);
             await page.evaluate((h) => window.scrollBy(0, h), scrollStep);
             await page.waitForTimeout(SCROLL_WAIT_MS);
             const afterY = await page.evaluate(() => window.scrollY);
-            if (afterY <= beforeY) break; // reached the bottom
+
+            // No forward progress can mean the real bottom, OR (on X's
+            // virtualized timeline) a transient scrollHeight shrink during DOM
+            // recycling that clamps scrollY backwards. Distinguish the two by
+            // waiting for more content to load and retrying; only give up after
+            // several consecutive stalls.
+            if (afterY <= beforeY) {
+              stalls++;
+              if (stalls >= MAX_SCROLL_STALLS) {
+                logger.warn(`Scroll stopped: ${stalls} consecutive stalls at scrollY=${afterY} after ${totalScrolls} scrolls`, { url });
+                break;
+              }
+              await page.waitForTimeout(SCROLL_STALL_WAIT_MS);
+              s--; // don't consume a scroll step on a stall retry
+              continue;
+            }
+            stalls = 0;
             totalScrolls++;
             chunk.push(await toFrame(await page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS }), false));
 
@@ -253,7 +303,7 @@ async function captureUrl(browser, url, outputDir, index, { isCancelled, scrollC
         };
       })();
 
-      const attemptTimeoutMs = ATTEMPT_TIMEOUT_MS + (scrollCount > 0 ? MAX_SCROLL_TIME_MS : 0);
+      const attemptTimeoutMs = ATTEMPT_TIMEOUT_MS + (scrollCount > 0 ? scrollTimeBudget(scrollCount) : 0);
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error(`Capture attempt timed out after ${attemptTimeoutMs}ms`)), attemptTimeoutMs);
       });
